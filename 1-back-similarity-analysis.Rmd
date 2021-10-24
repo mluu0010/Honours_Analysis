@@ -1,0 +1,851 @@
+---
+title: "1-back-similarity-analysis"
+author: "Matthew Lu"
+date: "17/06/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+#load libraries
+library(tidyr)
+library(akima)
+library(plyr)
+library(ggplot2)
+library(lemon)
+library(gridExtra)
+library(MASS)
+library(Matrix)
+library(reshape2)
+library(ape) # stats
+library(vegan) # stats
+library(RColorBrewer)
+library(cocor)
+library(DescTools)
+library(reshape2)
+library(grid)
+library(ggplotify)
+library(ggpubr)
+library(scales)
+library(data.table)
+library(dplyr)
+library(readr)
+library(readxl)
+library(purrr)
+library(vroom)
+library(broom)
+
+```
+
+#Behavioural Analysis
+```{r}
+#list subject files
+files <- list.files(path = "/Users/matthewlu/Desktop/Honours 2021/Project/Analysis/Matt_Colour_Sim/Behavioural_Data/Participant_Data", pattern = ".xlsx", full.names = TRUE)
+
+#load all subject files and merge into single datatable
+master_data = lapply(files, function(i){
+  x = read_excel(i, sheet=1)
+  x
+})
+master_data = do.call("rbind.data.frame", master_data)
+master_data <- as.data.table(master_data)
+
+```
+
+```{r}
+#Demographics
+sex <- master_data %>% filter(trialcode %in% c("sex")) 
+age <- master_data %>% filter(trialcode %in% c("age")) 
+
+sex$response <- as.factor(sex$response)
+age$response <- as.numeric(age$response)
+
+#Age range
+range(age$response)
+
+#Age mean and SD 
+mean(age$response)
+sd(age$response)
+
+#Number of female and male participants
+summary(sex$response)
+```
+
+
+```{r}
+#subset for only the trials 
+master_data_trials <- master_data %>% filter(trialcode %in% c("response_options"))
+
+master_data_trials$ID <- NA
+subjectlist <- unique(master_data_trials$subject)
+k= 0
+for (subject in subjectlist){
+  k = k + 1
+  master_data_trials$ID[master_data_trials$subject == subject] <- k
+}
+
+#create column for colours to match EEG triggers 
+master_data_trials$previous_colour_trigger <- revalue(master_data_trials$previous_colour, 
+                            c(  "#ff0000" = 'S  1',
+                                "#ffaa00" = 'S  2',
+                                "#aaff00" = 'S  3',
+                                "#00ff00" = 'S  4',
+                                "#00ffa9" = 'S  5',
+                                "#00a9ff" = 'S  6',
+                                "#0000ff" = 'S  7',
+                                "#aa00ff" = 'S  8',
+                                "#ff00aa" = 'S  9'))
+master_data_trials$current_colour_trigger <- revalue(master_data_trials$current_colour, 
+                            c(  "#ff0000" = 'S  1',
+                                "#ffaa00" = 'S  2',
+                                "#aaff00" = 'S  3',
+                                "#00ff00" = 'S  4',
+                                "#00ffa9" = 'S  5',
+                                "#00a9ff" = 'S  6',
+                                "#0000ff" = 'S  7',
+                                "#aa00ff" = 'S  8',
+                                "#ff00aa" = 'S  9'))
+
+master_data_trials$previous_colour <- revalue(master_data_trials$previous_colour, 
+                            c(  "#ff0000" = '#FF0000',
+                                "#ffaa00" = '#FFAA00',
+                                "#aaff00" = '#AAFF00',
+                                "#00ff00" = '#00FF00',
+                                "#00ffa9" = '#00FFA9',
+                                "#00a9ff" = '#00A9FF',
+                                "#0000ff" = '#0000FF',
+                                "#aa00ff" = '#AA00FF',
+                                "#ff00aa" = '#FF00AA'))
+master_data_trials$current_colour <- revalue(master_data_trials$current_colour, 
+                            c(  "#ff0000" = '#FF0000',
+                                "#ffaa00" = '#FFAA00',
+                                "#aaff00" = '#AAFF00',
+                                "#00ff00" = '#00FF00',
+                                "#00ffa9" = '#00FFA9',
+                                "#00a9ff" = '#00A9FF',
+                                "#0000ff" = '#0000FF',
+                                "#aa00ff" = '#AA00FF',
+                                "#ff00aa" = '#FF00AA'))
+
+master_data_trials$previous_colour_trigger <- as.factor(master_data_trials$previous_colour_trigger)
+
+master_data_trials$previous_colour <- as.factor(master_data_trials$previous_colour)
+
+master_data_trials$current_colour_trigger <- as.factor(master_data_trials$current_colour_trigger)
+master_data_trials$current_colour <- as.factor(master_data_trials$current_colour)
+
+```
+
+
+
+```{r}
+#Create column to match asymmetrical colour combinations 
+master_data_trials <- mutate(master_data_trials, pairs = case_when(
+previous_colour_trigger =="S  1" & current_colour_trigger=="S  1" ~ "1",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  2" | 
+    previous_colour_trigger =="S  2" & current_colour_trigger=="S  1" ~ "2",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  3" | 
+    previous_colour_trigger =="S  3" & current_colour_trigger=="S  1" ~ "3",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  4" | 
+    previous_colour_trigger =="S  4" & current_colour_trigger=="S  1" ~ "4",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  5" | 
+    previous_colour_trigger =="S  5" & current_colour_trigger=="S  1" ~ "5",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  6" | 
+    previous_colour_trigger =="S  6" & current_colour_trigger=="S  1" ~ "6",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  1" ~ "7",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  1" ~ "8",
+  previous_colour_trigger =="S  1" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  1" ~ "9",
+previous_colour_trigger =="S  2" & current_colour_trigger=="S  2" ~ "10", 
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  3" | 
+    previous_colour_trigger =="S  3" & current_colour_trigger=="S  2" ~ "11",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  4" | 
+    previous_colour_trigger =="S  4" & current_colour_trigger=="S  2" ~ "12",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  5" | 
+    previous_colour_trigger =="S  5" & current_colour_trigger=="S  2" ~ "13",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  6" | 
+    previous_colour_trigger =="S  6" & current_colour_trigger=="S  2" ~ "14",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  2" ~ "15",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  2" ~ "16",
+  previous_colour_trigger =="S  2" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  2" ~ "17",
+previous_colour_trigger =="S  3" & current_colour_trigger=="S  3" ~ "18",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  4" | 
+    previous_colour_trigger =="S  4" & current_colour_trigger=="S  3" ~ "19",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  5" | 
+    previous_colour_trigger =="S  5" & current_colour_trigger=="S  3" ~ "20",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  6" | 
+    previous_colour_trigger =="S  6" & current_colour_trigger=="S  3" ~ "21",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  3" ~ "22",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  3" ~ "23",
+  previous_colour_trigger =="S  3" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  3" ~ "24",
+previous_colour_trigger =="S  4" & current_colour_trigger=="S  4" ~ "25",
+  previous_colour_trigger =="S  4" & current_colour_trigger=="S  5" | 
+    previous_colour_trigger =="S  5" & current_colour_trigger=="S  4" ~ "26",
+  previous_colour_trigger =="S  4" & current_colour_trigger=="S  6" | 
+    previous_colour_trigger =="S  6" & current_colour_trigger=="S  4" ~ "27",
+  previous_colour_trigger =="S  4" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  4" ~ "28",
+  previous_colour_trigger =="S  4" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  4" ~ "29",
+  previous_colour_trigger =="S  4" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  4" ~ "30",
+previous_colour_trigger =="S  5" & current_colour_trigger=="S  5" ~ "31",
+  previous_colour_trigger =="S  5" & current_colour_trigger=="S  6" | 
+    previous_colour_trigger =="S  6" & current_colour_trigger=="S  5" ~ "32",
+  previous_colour_trigger =="S  5" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  5" ~ "33",
+  previous_colour_trigger =="S  5" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  5" ~ "34",
+  previous_colour_trigger =="S  5" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  5" ~ "35",
+previous_colour_trigger =="S  6" & current_colour_trigger=="S  6" ~ "36",
+  previous_colour_trigger =="S  6" & current_colour_trigger=="S  7" | 
+    previous_colour_trigger =="S  7" & current_colour_trigger=="S  6" ~ "37",
+  previous_colour_trigger =="S  6" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  6" ~ "38",
+  previous_colour_trigger =="S  6" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  6" ~ "39",
+previous_colour_trigger =="S  7" & current_colour_trigger=="S  7" ~ "40",
+  previous_colour_trigger =="S  7" & current_colour_trigger=="S  8" | 
+    previous_colour_trigger =="S  8" & current_colour_trigger=="S  7" ~ "41",
+  previous_colour_trigger =="S  7" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  7" ~ "42",
+previous_colour_trigger =="S  8" & current_colour_trigger=="S  8" ~ "43", 
+  previous_colour_trigger =="S  8" & current_colour_trigger=="S  9" | 
+    previous_colour_trigger =="S  9" & current_colour_trigger=="S  8" ~ "44",
+previous_colour_trigger =="S  9" & current_colour_trigger=="S  9" ~ "45",
+ ))
+
+master_data_trials$pairs <- as.numeric(master_data_trials$pairs)
+
+```
+
+```{r}
+#For each subject, summarise the mean similarity for the symmetrical pairs of colours
+ master_data_trials <- master_data_trials %>% 
+  group_by(subject, pairs) %>%
+  mutate(mean_similarity = mean(similarity)) 
+
+```
+
+```{r}
+#Keep only the mean similarity values, including duplicates for symmetrical colour pairs
+master_data_trials_means <- master_data_trials %>% 
+  distinct(subject, previous_colour, current_colour, mean_similarity) %>%
+  arrange(subject, pairs)
+
+#Rename colour columns to match EEG data
+master_data_trials_means <- rename(master_data_trials_means, Var1 = previous_colour, Var2 = current_colour)
+
+master_data_trials_means <- as.data.table(master_data_trials_means)
+
+#Convert dataframe for mean similarity values to list 
+master_data_trial_means_list <- split(master_data_trials_means, f=master_data_trials_means$subject)
+```
+  
+
+```{r, fig.asp=0.8, warning=FALSE}
+#Colours for plotting
+colours <- c('#FF0000','#FFAA00','#AAFF00','#00FF00','#00FFA9','#00A9FF','#0000FF','#AA00FF','#FF00AA')
+
+#Plot RDMs for behavioural data
+dissimplot_beh_fun <- function(x){ggplot(x, aes(x = Var1, y = Var2)) +
+    theme(axis.text.x = (element_text(colour = colours, angle = 90, size=4)), axis.text.y = element_text(colour = colours, size=4),
+          plot.title = element_text(hjust = 0.5, size = 12), text = element_text(size=12), plot.subtitle =element_text(size=12)) + geom_raster(aes(fill = mean_similarity)) +
+    labs(x = 'Colours', y = 'Colours') +
+    scale_fill_gradientn(colours = c("white","black")) +
+    guides(fill=guide_legend(title="Dissimilarity")) + scale_x_discrete(position = "bottom")}
+
+dissimplots_beh <- lapply(master_data_trial_means_list, dissimplot_beh_fun)
+
+
+```
+
+#Check each subject's variance for their similarity ratings
+```{r}
+master_data_trials <- master_data_trials %>% group_by(subject, pairs) %>% mutate(variance = var(similarity))
+
+master_variance <- master_data_trials %>% group_by(subject) %>% mutate(mean_variance = mean(variance))
+
+master_variance <- subset(master_variance, select = c("subject", "mean_variance"))
+
+master_variance <- master_variance %>% distinct(subject, mean_variance)
+
+master_variance$subject <- as.character(master_variance$subject)
+
+master_variance$subject <- revalue(master_variance$subject, c(
+  '1' = '01',
+  '2' = '02',
+  '3' = '03',
+  '4' = '04',
+  '5' = '05',
+  '6' = '06',
+  '7' = '07',
+  '8' = '08'
+))
+
+```
+
+```{r}
+#Bar plot for subject's variance
+variance_bar <- ggplot(master_variance, aes(subject, mean_variance)) + geom_bar(stat = "identity", color = "blue", fill = " light blue") + theme(axis.title = element_text(size = 24, face = "bold"), axis.text = element_text(size = 22, color = "black"), axis.line = element_line(colour = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) + labs(x = "Subject", y = "Variance") 
+```
+
+#Load EEG data
+```{r}
+# Run for each subject 
+# List the .txt files for ERP data
+list_of_files <- list.files(path = "/Users/matthewlu/Desktop/Honours 2021/Project/Analysis/One_Back_Similarity_Honours_Analysis/Subject 08", recursive = TRUE,
+                            pattern = "\\.txt$", 
+                            full.names = TRUE)
+
+subject_08_data_EEG <- vroom(list_of_files, show_col_types = FALSE, id ="path")
+
+#Add column to label each colour
+subject_08_data_EEG$colour <- NA
+colourlist <- unique(subject_08_data_EEG$path)
+k= 0
+for (path in colourlist){
+  k = k + 1
+  subject_08_data_EEG$colour[subject_08_data_EEG$path == path] <- k
+}
+
+##Add column for colour hex code (run for each subject) 
+subject_08_data_EEG$colour <- mapvalues(subject_08_data_EEG$colour, from = c(1:9), to = c("#FF0000","#FFAA00","#AAFF00","#00FF00", "#00FFA9","#00A9FF", "#0000FF", "#AA00FF", "#FF00AA"))
+
+#Factor colour column
+subject_08_data_EEG$colour <- as.factor(subject_08_data_EEG$colour)
+
+#Remove extra column
+subject_08_data_EEG <- subset(subject_08_data_EEG, select= -c(...67))
+
+
+```
+
+```{r}
+##Spread colour column to wide and electrodes to long (run for each subject)
+subject_08_data_EEG_wide <- reshape2::melt(subject_08_data_EEG, id.vars = c("time", "path", "colour"), measure.vars = c(3:67))
+
+subject_08_data_EEG_wide <- subject_08_data_EEG_wide %>% pivot_wider(id_cols = c(time, variable), names_from = colour, values_from = value)
+```
+
+```{r}
+## Create list for all subjects' EEG data
+EEG_list <- list(subject_01_data_EEG_wide, subject_02_data_EEG_wide, subject_03_data_EEG_wide, subject_04_data_EEG_wide, subject_05_data_EEG_wide, subject_06_data_EEG_wide, subject_07_data_EEG_wide, subject_08_data_EEG_wide)
+```
+
+##Compare EEG similarity with similarity ratings (Aim 1)
+```{r}
+#Add unique ID for each subject
+EEG_list_ID <- Map(cbind,EEG_list, subject = (1:length(EEG_list)))
+#Convert list of data frames to one dataframe
+EEG_DF <- do.call(rbind.data.frame, EEG_list_ID)
+
+```
+
+```{r}
+#Add variable for each time window 
+EEG_DF <- mutate(EEG_DF, timewindow = case_when(
+-201 < time & time < -150 ~ "T1",
+-151 < time & time < -100 ~ "T2",
+-101 < time & time < -50 ~ "T3",
+-51 < time & time < 0 ~ "T4",
+-1 < time & time < 50 ~ "T5",
+49 < time & time < 100 ~ "T6",
+99 < time & time < 150 ~ "T7",
+149 < time & time < 200 ~ "T8",
+199 < time & time < 250 ~ "T9",
+249 < time & time < 300 ~ "T10",
+299 < time & time < 350 ~ "T11",))
+
+#Convert timewindow to factor variable
+EEG_DF$timewindow <- as.factor(EEG_DF$timewindow)
+
+#Remove NA values
+EEG_DF <- na.omit(EEG_DF)
+
+#Split dataframe into list by subject, channels and timewindows
+EEG_list_Ch <- split(EEG_DF, f = list(EEG_DF$subject, EEG_DF$variable, EEG_DF$timewindow))
+```
+
+```{r}
+#Keep only columns for colour
+EEG_list_Ch <- lapply(EEG_list_Ch, subset, select = -c(1:2, 12:13))
+
+#Convert data tables to correlation matrices
+EEG_list_Ch <- lapply(EEG_list_Ch, as.matrix)
+EEG_list_Ch <- lapply(EEG_list_Ch, cor)
+
+#Create function to convert correlation to correlation distance
+pos_fun <- function(x){
+  1-x
+}
+
+#Apply correlation distance function to correlation matrices
+EEG_list_Ch <- lapply(EEG_list_Ch, pos_fun)
+
+#Convert matrices back to data tables
+EEG_list_Ch <- lapply(EEG_list_Ch, reshape2::melt)
+
+#Add unique ID for each subject in EEG data
+EEG_list_Ch <- Map(cbind,EEG_list_Ch, subject = (1:8))
+
+#Add column to specify channel and timewindow 
+EEG_list_Ch <- Map(cbind,EEG_list_Ch, Channel_Time = names(EEG_list_Ch))
+```
+
+```{r}
+#Convert list of dataframes to one dataframe
+EEG_DF_Ch <- do.call(rbind.data.frame, EEG_list_Ch)
+
+#Split channel-timewindow column to two columns
+EEG_DF_Ch <- EEG_DF_Ch %>% separate(Channel_Time, into = c("NA", "Channel", "Timewindow"), sep = "\\.")
+
+EEG_DF_Ch <- select(EEG_DF_Ch, -"NA")
+
+#Merge similarity data frame with EEG data frame 
+master_merged <- merge(EEG_DF_Ch, master_data_trials_means, by = c("subject", "Var1", "Var2"))
+
+#Remove same colour pair data (e.g., red-red)
+master_merged <- master_merged %>% filter(pairs != 1 & pairs != 10 & pairs != 18 & pairs != 25 & pairs != 31 & pairs != 36 & pairs != 40 & pairs != 43 & pairs != 45)
+
+#Remove duplicated values (e.g., red-green, green-red)
+master_merged <- master_merged %>%
+  arrange(value) %>%
+    filter(duplicated(value) == FALSE)
+```
+
+```{r}
+#Generate Pearson's correlation coefficients between mean similarity and ERP correlation distance for each time window and channel
+master_results <- setDT(master_merged)[, list(pval = cor.test(mean_similarity, value)$p.value, r = cor.test(mean_similarity, value)$estimate, t.stat = cor.test(mean_similarity, value)$statistic, df = cor.test(mean_similarity, value)$parameter, null.value = cor.test(mean_similarity, value)$null.value, alternative = cor.test(mean_similarity, value)$alternative, method = cor.test(mean_similarity, value)$method, variables = cor.test(mean_similarity, value)$data.name, conf.int = cor.test(mean_similarity, value)$conf.int), by = c("subject", "Channel", "Timewindow")]
+
+#Add label for lower and upper confidence intervals
+master_results$conf_label <- rep(c("conf.int.lower", "conf.int.upper"), length.out=nrow(master_results))
+
+#Spread confidence interval variable to wider format 
+master_results <- master_results %>% pivot_wider(id_cols = c(1:11), names_from = conf_label, values_from = conf.int)
+
+#Add column for Fisher Z transformed correlations
+master_results$FisherZscore <- FisherZ(master_results$r)
+
+#Order and factor the timewindows from T1 to T11
+Timewindows <- c("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11")
+
+master_results$Timewindow <- with(master_results, factor(Timewindow, levels = Timewindows))
+
+#Factor subject variable
+master_results$subject <- as.factor(master_results$subject)
+```
+
+
+```{r}
+#Compute t test for each timewindow in each channel collapsed across subjects
+average_t_test <- setDT(master_results)[, list(pval = t.test(FisherZscore)$p.value, FisherZscore = t.test(FisherZscore)$estimate, t.stat = t.test(FisherZscore)$statistic, df = t.test(FisherZscore)$parameter, null.value = t.test(FisherZscore)$null.value, alternative = t.test(FisherZscore)$alternative, method = t.test(FisherZscore)$method, variables = t.test(FisherZscore)$data.name, conf.int = t.test(FisherZscore)$conf.int), by = c("Channel", "Timewindow")]
+
+#Add label for lower and upper confidence intervals
+average_t_test$conf_label <- rep(c("conf.int.lower", "conf.int.upper"), length.out=nrow(average_t_test))
+
+#Spread confidence interval variable to wider format 
+average_t_test <- average_t_test %>% pivot_wider(id_cols = c(1:10), names_from = conf_label, values_from = conf.int)
+```
+
+#Scalp plots for Aim 1 analysis 
+```{r}
+#Import channel locations for plotting
+ch_loc <- read_delim("Channel_Loc", "\t", escape_double = FALSE, col_names = c("Number", "theta", "radius", "Channel"))
+
+ch_loc$theta <- as.numeric(ch_loc$theta)
+ch_loc$radius <- as.numeric(ch_loc$radius)
+
+#Remove whitespace for channel characters 
+ch_loc$Channel <- gsub(" ", "", ch_loc$Channel) 
+```
+
+```{r}
+#Convert polar coordinates to cartesian 
+ch_loc$radianTheta <- pi/180*ch_loc$theta
+
+ch_loc <- ch_loc %>%
+  mutate(x_coord = .$radius*sin(.$radianTheta),
+         y_coord = .$radius*cos(.$radianTheta))
+
+```
+
+```{r}
+ch_loc <- subset(ch_loc, select= c("Channel", "x_coord" , "y_coord"))
+
+average_t_test_ch <- merge(average_t_test, ch_loc, by = "Channel")
+```
+
+```{r}
+theme_topo <- function(base_size = 12)
+  {
+  theme_bw(base_size = base_size)
+      theme(
+            rect             = element_blank(),
+            line             = element_blank(),
+            axis.text = element_blank(),
+            axis.title = element_blank()
+           )
+}
+
+circleFun <- function(center = c(0,0),diameter = 1, npoints = 100) {
+  r = diameter / 2
+  tt <- seq(0,2*pi,length.out = npoints)
+  xx <- center[1] + r * cos(tt)
+  yy <- center[2] + r * sin(tt)
+  return(data.frame(x = xx, y = yy))
+}
+
+headShape <- circleFun(c(0, 0), round(max(ch_loc$x_coord)), npoints = 100) # 0
+nose <- data.frame(x = c(-0.075,0,.075),y=c(.495,.575,.495))
+
+scalp_colours <- colorRampPalette(c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
+
+
+```
+
+```{r}
+#Separate time windows 
+T1_data <- average_t_test_ch %>% filter (Timewindow == "T1")
+T2_data <- average_t_test_ch %>% filter (Timewindow == "T2")
+T3_data <- average_t_test_ch %>% filter (Timewindow == "T3")
+T4_data <- average_t_test_ch %>% filter (Timewindow == "T4")
+T5_data <- average_t_test_ch %>% filter (Timewindow == "T5")
+T6_data <- average_t_test_ch %>% filter (Timewindow == "T6")
+T7_data <- average_t_test_ch %>% filter (Timewindow == "T7")
+T8_data <- average_t_test_ch %>% filter (Timewindow == "T8")
+T9_data <- average_t_test_ch %>% filter (Timewindow == "T9")
+T10_data <- average_t_test_ch %>% filter (Timewindow == "T10")
+T11_data <- average_t_test_ch %>% filter (Timewindow == "T11")
+```
+
+```{r}
+#Create scalp map with t scores for each electrode
+ T7_scalp_T_scores <- ggplot(headShape,aes(x,y))+
+  geom_path(size = 1.5) +
+  geom_point(data = T7_data, aes(x_coord,y_coord, colour = t.stat)) + scale_colour_gradientn(name = "T Score", colours = scalp_colours(10)) +
+  geom_line(data = nose,aes(x, y, z = NULL),size = 1.5) + ggtitle("Scalp map of T scores - 100-148ms") + theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold")) +
+  theme_topo()+
+  coord_equal()
+
+```
+
+
+```{r}
+#Create function for interpolating t scores across the scalp - adapted from Matt Cradock
+
+rmax <- .75   #specify a maximum boundary for the grid
+gridRes <- 200 #specify the interpolation grid resolution
+
+## Create a function to perform Matlab's v4 interpolation.
+## Takes as input a data-frame with columns x, y, and z (x co-ordinates, y co-ordinates, and amplitude)
+## and variables xo and yo, the co-ordinates which will be use to create a grid for interpolation
+
+v4Interp <- function(df, xo, yo, rmax = .75, gridRes = 200) {
+  xo <- matrix(rep(xo,length(yo)),nrow = length(xo),ncol = length(yo))
+  yo <- t(matrix(rep(yo,length(xo)),nrow = length(yo),ncol = length(xo)))
+  xy <- df$x + df$y*sqrt(as.complex(-1))
+  d <- matrix(rep(xy,length(xy)),nrow = length(xy), ncol = length(xy))
+  d <- abs(d - t(d))
+  diag(d) <- 1
+  g <- (d^2) * (log(d)-1)   # Green's function.
+  diag(g) <- 0
+  weights <- qr.solve(g,df$z)
+  xy <- t(xy)
+  outmat <- matrix(nrow = gridRes,ncol = gridRes)
+  for (i in 1:gridRes){
+    for (j in 1:gridRes) {
+      test4 <- abs((xo[i,j] + sqrt(as.complex(-1))*yo[i,j]) - xy)
+      g <- (test4^2) * (log(test4)-1)
+      outmat[i,j] <- g %*% weights
+      }
+  }
+  outDf <- data.frame(x = xo[,1],outmat)
+  names(outDf)[1:length(yo[1,])+1] <- yo[1,]
+  #return(list(x = xo[,1],y = yo[1,],z = outmat))
+  return(outDf)
+}
+
+```
+
+```{r}
+
+## Create data frame to be used for interpolation - the function needs columns labelled x, y, and z - adapted from Matt Cradock
+## change "t.stat" to "FisherZscore" for plotting correlations
+##Run for each time window
+
+testDat<- data.frame(x = T11_data$x_coord,
+                     y = T11_data$y_coord,
+                     z = T11_data$t.stat) ## change to FisherZscore for plotting correlations
+
+#Create the interpolation grid
+xo <- seq(min(-rmax, testDat$x), max(rmax, testDat$x), length = gridRes)
+yo <- seq(max(rmax, testDat$y), min(-rmax, testDat$y), length = gridRes)
+
+interpV4 <- v4Interp(testDat, xo, yo)
+
+interpV4 <- gather(interpV4,
+                   key = y,
+                   value = t.stat,
+                   -x,
+                   convert = TRUE) 
+
+interpV4$incircle <- (interpV4$x)^2 + (interpV4$y)^2 < 0.7 ^ 2 # mark
+
+T11_scalp_T_scores_interp <- ggplot(interpV4[interpV4$incircle,],aes(x = x, y = y, fill = t.stat))+
+  geom_raster()+
+  stat_contour(aes(z = t.stat),binwidth = 0.5)+
+  theme_topo()+
+   geom_path(data = maskRing,
+            aes(x, y, z = NULL, fill =NULL),
+            colour = "white",
+            size = 6)+
+  scale_fill_gradientn(name = "T Statistic",
+                       colours = scalp_colours(10),
+                       limits = c(-1, 7),
+                       guide = "colourbar",
+                       oob = squish)+
+  geom_point(data = T11_data,
+             aes(x_coord,y_coord),
+             size = 1)+
+  geom_path(data = headShape,
+            aes(x,y,z = NULL,fill = NULL),
+            size = 1.5)+
+  geom_path(data = nose,
+            aes(x, y, z = NULL, fill = NULL),
+            size = 1.5)+
+  coord_equal() + 
+  ggtitle("300ms to 350ms") + theme(plot.title = element_text(hjust = 0.5, size = 28, face = "bold"), legend.title = element_text(size = 23, face = "bold", vjust = 1), legend.text = element_text(size = 23), legend.spacing.x = unit(0.5, "cm"), legend.key.size = unit(1, "cm"))
+
+```
+
+```{r}
+#Extract common legend for from T score scalp plots
+legend <- g_legend(T1_scalp_T_scores_interp + theme(legend.position ="right", legend.key.size = unit (1.5, "cm"), legend.title = element_text(size = 27), legend.text = element_text(size = 27)))
+
+#Combine scalp plots for t scores (Figure 13)
+scalp_plots <- grid.arrange(T1_scalp_T_scores_interp + theme(legend.position = "hidden"), T2_scalp_T_scores_interp + theme(legend.position = "hidden"), T3_scalp_T_scores_interp + theme(legend.position = "hidden"), T4_scalp_T_scores_interp + theme(legend.position = "hidden"), T5_scalp_T_scores_interp + theme(legend.position = "hidden"), T6_scalp_T_scores_interp + theme(legend.position = "hidden"), T7_scalp_T_scores_interp + theme(legend.position = "hidden"), T8_scalp_T_scores_interp + theme(legend.position = "hidden"), T9_scalp_T_scores_interp + theme(legend.position = "hidden"), T10_scalp_T_scores_interp + theme(legend.position = "hidden"), T11_scalp_T_scores_interp + theme(legend.position = "hidden"), ncol = 4, legend, layout_matrix = cbind(c(1, 4, 7, 10), c(2, 5, 8, 11), c(3, 6, 9, NA), c(12, 12, 12, 12)), widths = c(2.5,2.5,2.5,0.8))
+
+#Remove grid background
+scalp_plots <- ggdraw(scalp_plots) + theme(plot.background = element_rect(fill = "white", color = NA))
+
+#Extract legend from correlation scalp plots
+legend2 <- g_legend(T6_Scalp_Fisher + theme(legend.position ="right", legend.key.size = unit (1, "cm"), legend.title = element_text(size = 16), legend.text = element_text(size = 16)))
+
+#Combine scalp plots with the highest correlations (Figure 14)
+scalp_plots_fisher <- grid.arrange(T6_Scalp_Fisher + theme(legend.position = "hidden"), T7_Scalp_Fisher + theme(legend.position = "hidden"), T10_Scalp_Fisher + theme(legend.position = "hidden"), legend2, ncol = 4)
+
+#Remove grid background
+scalp_plots_fisher <- ggdraw(scalp_plots_fisher) + theme(plot.background = element_rect(fill = "white", color = NA))
+```
+
+#Other figures 
+
+```{r, fig.asp=0.8, warning=FALSE}
+#ERP dissimilarity matrix (Figure 8)
+EEG_DF_Ch %>% filter(subject == 7 & Channel == "TP8" & Timewindow == "T7") %>%
+ggplot(aes(x = Var1, y = Var2)) +
+    theme(axis.text.x = (element_text(colour = colours, angle = 90, size=4)), axis.text.y = element_text(colour = colours, size=4),
+          plot.title = element_text(hjust = 0.5, size = 12), text = element_text(size=12), plot.subtitle =element_text(size=12)) + geom_raster(aes(fill = value)) +
+    labs(x = 'Colours', y = 'Colours') +
+    scale_fill_gradientn(colours = c("white", "black"), limits = c(0, 2)) +
+    guides(fill=guide_legend(title="Dissimilarity")) + scale_x_discrete(position = "bottom")
+```
+
+```{r}
+#RSA Correlation scatterplot (Figure for results communication)
+master_merged %>% filter(subject == 7 & Channel == "TP8" & Timewindow == "T7") %>% ggplot(aes(mean_similarity, value)) + geom_point() + labs(y = "ERP Dissimilarity", x = "Behavioural Dissimilarity") + scale_x_continuous(breaks = scales::pretty_breaks(n = 7)) + theme(axis.title = element_text(size = 16, face = "bold"), axis.text = element_text(size = 16), axis.line = element_line(colour = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) + geom_smooth(method = lm, se = FALSE, color = "black")
+
+
+```
+
+```{r}
+#Scatterplot for similarity between amplitudes of two colours (Figure 7)
+EEG_DF %>% filter(subject == 7 & variable == "PO7" & time > 199 & time < 251) %>%
+ggplot(aes(.[[10]], .[[11]])) + geom_point() + geom_smooth(method = lm, se = FALSE, color = "black") + labs(y = "Colour 2 Amplitudes (µV)", x = "Colour 1 Amplitudes (µV)")+ theme(axis.title = element_text(size = 26, face = "bold", color = "black"), axis.text = element_text(size = 26, color = "black"), axis.line = element_line(colour = "black"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) + scale_x_continuous(breaks = c(1,2,3), limits = c(1,3)) + scale_y_continuous(breaks = c(1,2,3,4,5,6), limits = c(1,6.5)) 
+```
+
+#Find the posterior electrodes with the highest correlations in each time window
+```{r}
+average_t_test$Timewindow <- with(average_t_test, factor(Timewindow, levels = Timewindows))
+
+#Filter and select only posterior electrodes with the highest correlations
+Highest_Cor <- average_t_test %>% filter(substr(Channel,1,1) == "P"| substr(Channel,1,1) == "O") %>% group_by(Timewindow) %>% filter(FisherZscore == max(FisherZscore)) 
+
+```
+
+```{r}
+#Calculate the standard deviation for the fisher correlations
+master_results %>% filter (Channel == "P4" & Timewindow == "T7") %>% mutate (std = sd(FisherZscore))
+```
+
+#Compare EEG similarity with CIELAB perceptual similarity (Aim 2)
+```{r}
+#Import file containing calculated distance values between colours
+Delta_diff <- read_xlsx("Delta_diff.xlsx")
+
+Delta_diff$Var1 <- with(Delta_diff, factor(Var1, levels = colours))
+Delta_diff$Var2 <- with(Delta_diff, factor(Var2, levels = colours))
+```
+
+```{r}
+#Merge similarity data frame with EEG data frame 
+master_merged_delta <- merge(EEG_DF_Ch, Delta_diff, by = c("Var1", "Var2"))
+
+#Remove same colour pair data (e.g., red-red)
+master_merged_delta <- master_merged_delta %>% filter(pairs != 1 & pairs != 10 & pairs != 18 & pairs != 25 & pairs != 31 & pairs != 36 & pairs != 40 & pairs != 43 & pairs != 45)
+
+#Remove duplicated values 
+master_merged_delta <- master_merged_delta %>%
+  arrange(value) %>%
+    filter(duplicated(value) == FALSE)
+```
+
+```{r}
+#Generate Pearson's correlation coeffcients between CIELAB difference and ERP correlation distance
+master_results_delta <- setDT(master_merged_delta)[, list(pval = cor.test(Difference, value)$p.value, r = cor.test(Difference, value)$estimate, t.stat = cor.test(Difference, value)$statistic, df = cor.test(Difference, value)$parameter, null.value = cor.test(Difference, value)$null.value, alternative = cor.test(Difference, value)$alternative, method = cor.test(Difference, value)$method, variables = cor.test(Difference, value)$data.name, conf.int = cor.test(Difference, value)$conf.int), by = c("subject", "Channel", "Timewindow")]
+
+#Add label for lower and upper confidence intervals
+master_results_delta$conf_label <- rep(c("conf.int.lower", "conf.int.upper"), length.out=nrow(master_results_delta))
+
+#Spread confidence interval variable to wider format 
+master_results_delta <- master_results_delta %>% pivot_wider(id_cols = c(1:11), names_from = conf_label, values_from = conf.int)
+
+#Add column for Fisher Z transformed correlations
+master_results_delta$FisherZscore <- FisherZ(master_results_delta$r)
+
+master_results_delta$Timewindow <- with(master_results_delta, factor(Timewindow, levels = Timewindows))
+
+#Factor subject variable
+master_results_delta$subject <- as.factor(master_results_delta$subject)
+```
+
+```{r}
+#Compute t test for each timewindow in each channel collapsed across subjects
+average_t_test_delta <- setDT(master_results_delta)[, list(pval = t.test(FisherZscore)$p.value, FisherZscore = t.test(FisherZscore)$estimate, t.stat = t.test(FisherZscore)$statistic, df = t.test(FisherZscore)$parameter, null.value = t.test(FisherZscore)$null.value, alternative = t.test(FisherZscore)$alternative, method = t.test(FisherZscore)$method, variables = t.test(FisherZscore)$data.name, conf.int = t.test(FisherZscore)$conf.int), by = c("Channel", "Timewindow")]
+
+#Add label for lower and upper confidence intervals
+average_t_test_delta$conf_label <- rep(c("conf.int.lower", "conf.int.upper"), length.out=nrow(average_t_test_delta))
+
+#Spread confidence interval variable to wider format 
+average_t_test_delta <- average_t_test_delta %>% pivot_wider(id_cols = c(1:10), names_from = conf_label, values_from = conf.int)
+```
+
+#Scalp plots for aim 2 aalysis 
+```{r}
+average_t_test_ch_delta <- merge(average_t_test_delta, ch_loc, by = "Channel")
+
+T1_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T1")
+T2_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T2")
+T3_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T3")
+T4_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T4")
+T5_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T5")
+T6_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T6")
+T7_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T7")
+T8_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T8")
+T9_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T9")
+T10_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T10")
+T11_data_delta <- average_t_test_ch_delta %>% filter (Timewindow == "T11")
+```
+
+```{r}
+## Create data frame to be used for interpolation - the function needs columns labelled x, y, and z - adapted from Matt Cradock
+
+testDat<- data.frame(x = T10_data_delta$x_coord,
+                     y = T10_data_delta$y_coord,
+                     z = T10_data_delta$FisherZscore)
+
+#Create the interpolation grid
+xo <- seq(min(-rmax, testDat$x), max(rmax, testDat$x), length = gridRes)
+yo <- seq(max(rmax, testDat$y), min(-rmax, testDat$y), length = gridRes)
+
+interpV4 <- v4Interp(testDat, xo, yo)
+
+interpV4 <- gather(interpV4,
+                   key = y,
+                   value = FisherZscore,
+                   -x,
+                   convert = TRUE) 
+
+interpV4$incircle <- (interpV4$x)^2 + (interpV4$y)^2 < 0.7 ^ 2 # mark
+
+T10_scalp_Fisher_delta <- ggplot(interpV4[interpV4$incircle,],aes(x = x, y = y, fill = FisherZscore))+
+  geom_raster()+
+  stat_contour(aes(z = FisherZscore),binwidth = 0.04)+
+  theme_topo()+
+   geom_path(data = maskRing,
+            aes(x, y, z = NULL, fill =NULL),
+            colour = "white",
+            size = 6)+
+  scale_fill_gradientn(name = "Fisher Z Correlation",
+                       colours = scalp_colours(10),
+                       limits = c(0, 0.4),
+                       guide = "colourbar",
+                       oob = squish)+
+  geom_point(data = T10_data_delta,
+             aes(x_coord,y_coord),
+             size = 1)+
+  geom_path(data = headShape,
+            aes(x,y,z = NULL,fill = NULL),
+            size = 1.5)+
+  geom_path(data = nose,
+            aes(x, y, z = NULL, fill = NULL),
+            size = 1.5)+
+  coord_equal() + 
+  ggtitle("250ms to 300ms") + theme(plot.title = element_text(hjust = 0.5, size = 28, face = "bold"), legend.title = element_text(size = 23, face = "bold", vjust = 1), legend.text = element_text(size = 23), legend.spacing.x = unit(0.5, "cm"), legend.key.size = unit(1, "cm"))
+
+```
+
+```{r}
+legend_delta <- g_legend(T1_scalp_T_scores_interp_delta + theme(legend.position ="right", legend.key.size = unit (1.5, "cm"), legend.title = element_text(size = 27), legend.text = element_text(size = 27)))
+
+scalp_plots_delta <- grid.arrange(
+T1_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T2_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T3_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T4_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T5_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T6_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T7_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T8_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T9_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T10_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), T11_scalp_T_scores_interp_delta + theme(legend.position = "hidden"), ncol = 4, legend_delta, layout_matrix = cbind(c(1, 4, 7, 10), c(2, 5, 8, 11), c(3, 6, 9, NA), c(12, 12, 12, 12)), widths = c(2.5,2.5,2.5,0.8))
+
+scalp_plots_delta <- ggdraw(scalp_plots_delta) + theme(plot.background = element_rect(fill = "white", color = NA))
+
+legend2_delta <- g_legend(T7_scalp_Fisher_delta + theme(legend.position ="right", legend.key.size = unit (1, "cm"), legend.title = element_text(size = 16), legend.text = element_text(size = 16)))
+
+scalp_plots_fisher_delta <- grid.arrange(T7_scalp_Fisher_delta + theme(legend.position = "hidden"), T9_scalp_Fisher_delta + theme(legend.position = "hidden"), T10_scalp_Fisher_delta + theme(legend.position = "hidden"), legend2, ncol = 4)
+
+scalp_plots_fisher_delta <- ggdraw(scalp_plots_fisher_delta) + theme(plot.background = element_rect(fill = "white", color = NA))
+
+```
+
+```{r, fig.asp=0.8, warning=FALSE}
+#Create dissimilarity matrix for CIELAB data
+ggplot(Delta_diff, aes(x = Var1, y = Var2)) +
+    theme(axis.text.x = (element_text(colour = colours, angle = 90, size=4)), axis.text.y = element_text(colour = colours, size=4),
+          plot.title = element_text(hjust = 0.5, size = 12), text = element_text(size=12), plot.subtitle =element_text(size=12)) + geom_raster(aes(fill = Difference)) +
+    labs(x = 'Colours', y = 'Colours') +
+    scale_fill_gradientn(colours = c("white","black"), limits = c(0,260)) +
+    guides(fill=guide_legend(title="Dissimilarity")) + scale_x_discrete(position = "bottom")
+```
+
+```{r}
+#Calculate standard deviations for desired correlations
+master_results_delta %>% filter(Channel == "O1" & Timewindow == "T9") %>% mutate (std = sd(FisherZscore))
+```
+
+#Find the posterior electrodes with the highest correlations in each time window
+```{r}
+#Conduct for both average_t_test (similarity ratings) and average_t_test_delta (CIELAB similarity)
+average_t_test_delta$Timewindow <- with(average_t_test_delta, factor(Timewindow, levels = Timewindows))
+
+#Filter and select only posterior electrodes with the highest correlations
+Highest_Cor_delta <- average_t_test_delta %>% filter(substr(Channel,1,1) == "P"| substr(Channel,1,1) == "O") %>% group_by(Timewindow) %>% filter(FisherZscore == max(FisherZscore)) 
+
+```
+
